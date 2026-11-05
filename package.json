@@ -1,0 +1,51 @@
+{
+  "name": "@wiseprogress/opencode-agent-monitor",
+  "version": "0.3.0",
+  "type": "module",
+  "description": "Unofficial OpenCode agent monitor with live dashboards, project switching, and safe agent editing",
+  "license": "MIT",
+  "author": "wiseprogress",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WProgress/opencode-agent-monitor.git"
+  },
+  "homepage": "https://github.com/WProgress/opencode-agent-monitor#readme",
+  "bugs": {
+    "url": "https://github.com/WProgress/opencode-agent-monitor/issues"
+  },
+  "keywords": [
+    "opencode",
+    "agent",
+    "monitor",
+    "dashboard",
+    "cli",
+    "sqlite"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "ocam": "dist/ocam.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "docs/screenshot.png"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/cli.ts",
+    "build": "esbuild src/cli.ts --bundle --splitting --platform=node --format=esm --target=node24 --outdir=dist --entry-names=ocam --chunk-names=chunks/[name]-[hash]",
+    "pack:check": "npm pack --dry-run",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
