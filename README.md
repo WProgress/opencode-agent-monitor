@@ -104,7 +104,10 @@ links when assigning work. Motion respects `prefers-reduced-motion`.
 The original office view. Every agent gets a desk: typing when working, asleep
 when not. Each card carries its last task and how long ago it was active.
 
-![Desks view](docs/desks.png)
+![Working and sleeping agents updating live](docs/working-sleeping.gif)
+
+*Working agents type, sleeping agents show `zzz`, and status changes arrive
+without refreshing the page.*
 
 ### All projects
 
