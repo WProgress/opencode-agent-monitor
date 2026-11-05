@@ -1,77 +1,128 @@
 # OpenCode Agent Monitor (OCAM)
 
-A local web app that turns OpenCode activity into an office floor. Every agent
-in the current project gets a desk: it is **working** when it has a live task,
-and **sleeping** when it does not.
+**Live visibility for every OpenCode agent, across every project.**
 
-![OpenCode Agent Monitor showing the organizational structure](docs/screenshot.png)
+[![npm version](https://img.shields.io/npm/v/@wiseprogress/opencode-agent-monitor.svg)](https://www.npmjs.com/package/@wiseprogress/opencode-agent-monitor)
+[![npm downloads](https://img.shields.io/npm/dm/@wiseprogress/opencode-agent-monitor.svg)](https://www.npmjs.com/package/@wiseprogress/opencode-agent-monitor)
+[![MIT license](https://img.shields.io/npm/l/@wiseprogress/opencode-agent-monitor.svg)](LICENSE)
+[![Node 24+](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![GitHub stars](https://img.shields.io/github/stars/WProgress/opencode-agent-monitor?style=social)](https://github.com/WProgress/opencode-agent-monitor/stargazers)
 
-It is a read-only dashboard: it never starts, stops or messages an agent, and it
-never writes to the OpenCode database. On loopback it can also edit the project's
-agent markdown files and add new agents.
+![OpenCode Agent Monitor showing the organizational structure](docs/org-structure.png)
+
+OCAM is an unofficial, local-first dashboard for **OpenCode**. It reads your
+local OpenCode database and turns agent sessions into a live view of who is
+working, who is waiting, what they are doing, and how coordinators and
+sub-agents relate to each other.
+
+No cloud account. No telemetry. No writes to the OpenCode database.
 
 > Unofficial community tool. Not affiliated with the OpenCode project.
 
-## Install
+## Why OCAM
 
-Requires **Node.js 24** or newer (it uses the built-in `node:sqlite` and runs
-TypeScript directly). There are no dependencies.
+- **See the whole team at once** — working, sleeping and coordinating.
+- **Follow the reporting chain** — coordinators above their direct reports and
+  nested sub-agents below them.
+- **Switch between projects** — one dashboard for every OpenCode project in your
+  local database.
+- **Understand what is happening now** — current task, elapsed time, todo
+  progress, and live updates over Server-Sent Events.
+- **Stay local** — the database is opened read-only, and no data leaves your
+  machine.
+- **Edit safely when needed** — optional agent-file editing on loopback only.
+
+## Quick start
+
+### Requirements
+
+- **Node.js 24 or newer**
+- **OpenCode**, with the project opened at least once so its sessions exist in
+  the local database
+
+### Install
 
 ```powershell
 npm install --global @wiseprogress/opencode-agent-monitor
+```
+
+Run it from the project you want to monitor:
+
+```powershell
+cd C:\path\to\your-project
+ocam
+```
+
+Then open <http://127.0.0.1:4420>.
+
+On macOS or Linux:
+
+```bash
+npm install --global @wiseprogress/opencode-agent-monitor
+cd ~/code/your-project
 ocam
 ```
 
 Or run it without a global install:
 
-```powershell
+```bash
 npx @wiseprogress/opencode-agent-monitor
 ```
 
-Then open <http://127.0.0.1:4420>.
-
-Run it against a specific project:
+To choose the project explicitly, or use another port:
 
 ```powershell
-ocam "D:\SourceCode\Personal\BillingAgent"
+ocam "D:\SourceCode\Personal\BillingAgent" --port=4421
 ```
 
-`ocam --help` lists every option. Use the **Project** selector in the header to
-switch to any project in the OpenCode database.
+## Views
 
-## Run from source
+### Org structure — default
 
-```powershell
-cd D:\SourceCode\Personal\AgentMonitor
-npm start
-```
+A formal reporting chart. Coordinators sit above their direct reports, nested
+reports sit below their manager, and elbow connectors make the chain of command
+explicit. Sleeping agents are grayscale. Cards show status, task, progress and
+an Edit action.
 
-On Windows you can also double-click **`start.cmd`**, which starts the server in
-its own window and opens the browser.
+Use **Find agent** to filter by name, role or task, and the zoom controls to fit
+large teams. Focus a card to read its full task.
 
-By default it watches the current folder and the OpenCode database at
-`~/.local/share/opencode/opencode.db`. Use the **Project** selector to switch to
-any other project in that database; the default path is just the starting point.
+### Mind map
 
-## What a desk shows
+A radial view of delegation. Build — or a project hub when there are several root
+agents — sits at the center. Direct sub-agents sit on the first ring, their
+sub-agents on the next, and so on. Each coordinator owns an angular wedge, so
+deeper agents stay grouped under their parent.
 
-- **Avatar and name** for every agent in `.opencode/agents/`, plus `Build`.
-- **Working** — the agent's current task (the session title), an elapsed timer,
-  step progress from its todo list, and a typing animation.
-- **Sleeping** — its last task and how long ago it was active, with the monitor
-  dimmed and a sleeping pose.
-- **Coordinating** — when an agent's own session is waiting on a sub-agent, its
-  desk still shows working and names the sub-agent task.
-- **Visitor** — a built-in helper (`explore`, `general`, `plan`, …) appears in a
-  dashed card only while it has a live task.
-- **Edit** — a link on each file-backed desk opens its agent editor.
-- A summary line: how many agents are working and sleeping, and when the view
-  was last refreshed.
+![Mind map view](docs/mind-map.png)
 
-The page updates live over Server-Sent Events. With JavaScript disabled it still
-renders fully and refreshes itself every 15 seconds.
+Working agents glow, connector links brighten, and coordinators walk along their
+links when assigning work. Motion respects `prefers-reduced-motion`.
 
-## How "working" is decided
+### Desks
+
+The original office view. Every agent gets a desk: typing when working, asleep
+when not. Each card carries its last task and how long ago it was active.
+
+![Desks view](docs/desks.png)
+
+### All projects
+
+One card per OpenCode project, with working and sleeping counts, a status bar,
+and the agents that are active right now. The view refreshes every five seconds
+and links directly into each project’s org chart. OpenCode’s synthetic global
+project is skipped.
+
+## Project switching
+
+The **Project** selector in the header lists every project in the OpenCode
+database. The selection is carried in `?project=<project-id>`, so links, edits
+and live updates stay on the same project.
+
+Each project reads agents from its own `<worktree>/.opencode/agents` folder. The
+project passed on the command line may override this with `--agents`.
+
+## How “working” is decided
 
 The database stores, per session, when it became busy and when it went idle.
 
@@ -80,7 +131,7 @@ The database stores, per session, when it became busy and when it went idle.
 | `time_busy > time_idle` and activity within the stale window (15 min) | Working |
 | Idle marker is newer than the busy marker | Sleeping |
 | Busy, but nothing has updated for more than 15 minutes | Sleeping (stale) |
-| Agent's own session is idle but a child session is working | Working — coordinating |
+| Agent’s own session is idle but a child session is working | Working — coordinating |
 | Agent has no sessions in this project | Sleeping — no task yet |
 
 The freshness check uses the latest session update, not the start of the busy
@@ -89,76 +140,34 @@ period, so a long build or test run stays marked as working.
 Task text comes from the session title. For a generic title such as
 `Main Session (Build Agent)`, the in-progress todo step is used instead.
 
-## Four views and project switching
+## Safety and privacy
 
-The dashboard has four views, switchable from the header:
+- The OpenCode database is opened **read-only**.
+- The dashboard never starts, stops or messages an agent.
+- Agent editing is available only on loopback (`127.0.0.1`, `localhost`, `::1`)
+  and can be disabled with `--read-only`.
+- Forms use a per-process CSRF token; cross-origin submissions are rejected.
+- Agent edits preserve nested frontmatter, create a backup, and refuse stale
+  writes.
+- No analytics, telemetry or external requests are made by the dashboard.
 
-- **Desks** — the compact card view (`?view=desks`).
-- **Mind map** — a radial mind map with an agent list on the left. Build (or a
-  project hub when there are several root agents) sits at the center; direct
-  sub-agents sit on the first ring, their sub-agents on the next ring, and so
-  on. Each coordinator owns an angular wedge, so deeper agents stay grouped
-  under their parent. The left-hand cards show each agent's task and status and
-  provide the Edit action; sleeping agents are grayscale. Working agents glow
-  and connector links brighten. When a coordinator assigns work, it walks along
-  the link to the sub-agent; when a sub-agent finishes, it walks back to its
-  parent. Motion respects `prefers-reduced-motion`.
-- **Org structure** (default) — a formal reporting chart. Coordinators sit above their
-  direct reports, nested reports sit below their manager, and connectors make
-  the chain of command explicit. Each card carries status, task, progress and
-  an Edit action; sleeping agents are grayscale. This view updates live but
-  does not animate walking. Larger, keyboard-focusable cards expose full task
-  text on focus. Search highlights matching names, roles and tasks; zoom,
-  fit-to-window and actual-size controls help navigate larger teams. Reporting
-  lines refresh when the hierarchy changes.
-- **All projects** (`?view=projects`) — one card per OpenCode project with its
-  working and sleeping counts, a status bar and the agents that are active
-  right now. It refreshes every five seconds and links into each project's org
-  chart. OpenCode's synthetic global project is skipped.
+## Compatibility and limitations
 
-A **Project** selector in the header switches between every project in the
-OpenCode database. The selection is carried in `?project=<project-id>`, so
-links, edits and live updates stay on the same project. Each project's agents
-are read from its own `<worktree>/.opencode/agents` folder (the configured
-project can override this with `--agents`).
+- **Node.js 24+** is required because the app uses `node:sqlite`.
+- Intended for **local, single-user** use. There is no authentication layer for
+  network hosting; do not expose it on a public interface.
+- Agents are discovered from the project’s `.opencode/agents` directory plus the
+  built-in **Build** agent.
+- Sessions, tasks and todos come from the same user profile’s OpenCode database.
+  Set `MONITOR_DB` or `--db` to use another database.
+- Development and testing are primarily on Windows; macOS and Linux use the
+  same commands and Node APIs.
+- The view is an unofficial interpretation of OpenCode state. OpenCode schema
+  changes are handled defensively, but future versions may need updates.
 
-The Mind map, Org structure and All projects views are static without
-JavaScript, but still readable and refreshed every 15 seconds.
+## CLI options
 
-## Edit and create agents
-
-On a loopback bind address, every agent backed by a file gets an **Edit**
-action in the Desks, Mind map and Org structure views, and the header has a
-**New agent** action. The editor exposes:
-
-- display name (Agent Monitor only)
-- description / role
-- mode (`primary`, `subagent`, `all`, or the OpenCode default)
-- model
-- color
-- system prompt body
-
-Only those frontmatter keys and the body are changed. Nested `permissions`,
-`temperature`, `tools` and unknown frontmatter are preserved exactly. The agent
-id is the markdown filename and cannot be changed from the editor.
-
-Display names are stored in `.opencode/agents/.agent-monitor.json` so the
-OpenCode markdown schema stays untouched. Before each save the previous file is
-copied to `.opencode/agents/.agent-monitor-backups/` (the newest 20 are kept),
-and saves are refused with `409` if the file changed on disk while the form was
-open.
-
-The built-in **Build** desk is not editable unless a real `build.md` exists.
-Agent Monitor refreshes immediately after a save; a running OpenCode process may
-need to reload or restart before it picks up the new configuration.
-
-Editing is enabled by default only when bound to `127.0.0.1`, `localhost` or
-`::1`. Use `--read-only` to disable writes entirely. Non-loopback binds are
-always read-only.
-
-## Options
-
-```
+```text
 ocam [project-path] [--port=4420] [--stale-minutes=15] [--refresh-ms=2000] [--read-only]
 ```
 
@@ -174,78 +183,75 @@ ocam [project-path] [--port=4420] [--stale-minutes=15] [--refresh-ms=2000] [--re
 | `--agents=<dir>` | `MONITOR_AGENTS_DIR` | `<project>/.opencode/agents` |
 | `--read-only` | `MONITOR_READ_ONLY` | off |
 
-Paths may start with `~` to mean your home directory. `start.cmd` opens the
-browser at the configured `MONITOR_HOST` and `MONITOR_PORT` when running from
-source.
+Paths may start with `~` to mean your home directory.
 
-The server binds to localhost only by default, and editing is refused on
-non-loopback addresses. Session titles and prompts can contain sensitive text,
-so do not expose it on a network interface without adding authentication.
+## Development
 
-## Endpoints
+```bash
+git clone https://github.com/WProgress/opencode-agent-monitor.git
+cd opencode-agent-monitor
+npm install
+npm test
+```
+
+Run from source:
+
+```bash
+npm start
+```
+
+Build the published CLI bundle:
+
+```bash
+npm run build
+```
+
+The bundle is written to `dist/` and is what npm installs. The source runs
+directly on Node 24 without a build step.
+
+### Endpoints
 
 - `GET /` — the default Org structure view. Add `?view=desks`, `?view=mindmap`
   or `?view=projects`; add `?project=<id>` to open another project.
 - `GET /api/state` — the current project snapshot as JSON (`?project=<id>` for
   another project).
-- `GET /api/projects` — totals and per-project summaries for the All projects
-  view.
+- `GET /api/projects` — totals and per-project summaries for All projects.
 - `GET /events` — Server-Sent Events stream for the selected project
   (`?project=<id>`).
 - `GET /health` — database, desk and editing status for scripts.
-- `GET /agents/new` — create form.
-- `GET /agents/<id>/edit` — edit form.
-- `POST /agents` — create an agent.
-- `POST /agents/<id>` — save an agent.
+- `GET /agents/new` and `GET /agents/<id>/edit` — agent editor pages.
+- `POST /agents` and `POST /agents/<id>` — create and save agents.
 
-## Tests
+## Testing
 
-```powershell
+```bash
 npm test
 ```
 
-66 tests cover project resolution, project switching and the all-projects
-overview, busy/idle/stale transitions, archived
-sessions and archived projects, parent roll-up, todo progress, visitor desks,
-roster parsing, configuration precedence, agent-file parsing and patching,
-editing routes, CSRF and loopback write gating, the radial mind map, the
-organizational structure view, duration formatting, HTML escaping, schema
-degradation and the no-JavaScript fallback.
+66 tests cover project resolution, project switching, the all-projects overview,
+busy/idle/stale transitions, archived sessions and projects, parent roll-up,
+todo progress, visitor desks, roster parsing, configuration precedence,
+agent-file parsing and patching, editing routes, CSRF and loopback write gating,
+the radial mind map, the organizational structure view, duration formatting,
+HTML escaping, schema degradation, the no-JavaScript fallback, and the CLI.
 
-## Structure
+## Contributing
 
-```
-dist/           bundled npm CLI, generated by npm run build
-src/cli.ts      CLI entry: help, version and server start
-src/config.ts   flags, environment, defaults, loopback detection
-src/agents.ts   agent markdown parsing, validation, aliases, safe writes
-src/db.ts       read-only SQLite access and project resolution
-src/state.ts    roster discovery and working/sleeping snapshot
-src/render.ts   server-rendered HTML, CSS, SVG scene, SSE client, editor pages
-src/interactive.ts  the optional radial mind map
-src/org.ts      the optional organizational structure chart
-src/overview.ts all-projects summary model and sorting
-src/projects.ts the all-projects dashboard
-src/server.ts   HTTP server, polling, SSE, health, project switching, agent editing routes
-test/           configuration, agent-file, fixture-database and route tests
-```
+Issues and pull requests are welcome. If OCAM is useful to you, a star helps
+other OpenCode users find it.
 
-The database schema is detected at startup (`session_v2` first, then the older
-`session` table), and columns that do not exist are treated as null so a schema
-change degrades instead of crashing.
+Before opening a PR:
 
-## Troubleshooting
+1. Run `npm test`.
+2. Keep changes consistent with the existing server-rendered style.
+3. Update the README or tests when behavior changes.
 
-- **`listen EACCES`** — Windows has reserved the port (4317–4416 is a common
-  reserved range). Start with another port, e.g. `ocam --port=4420`.
-- **"No OpenCode project matches"** — pass the project folder explicitly:
-  `ocam D:\SourceCode\Personal\OtherProject`.
-- **Everything is asleep while OpenCode is running** — the monitor reads the
-  same user profile's database. Check the `Database` path in the footer.
-- **Broken page after a schema change** — run `/health`; the banner on the page
-  includes the underlying error.
-- **No Edit links / "Editing is disabled"** — the server is bound to a
-  non-loopback address or started with `--read-only`. Bind to `127.0.0.1` and
-  remove the flag.
-- **"This agent file changed on disk"** — the file was edited outside Agent
-  Monitor while the form was open. Reload the edit page and save again.
+Please avoid posting tokens, database contents or other sensitive information in
+public issues.
+
+## License
+
+[MIT](LICENSE) © wiseprogress
+
+OpenCode Agent Monitor is an unofficial community project and is not affiliated
+with or endorsed by the OpenCode project.

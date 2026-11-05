@@ -31,7 +31,7 @@
     "dist",
     "README.md",
     "LICENSE",
-    "docs/screenshot.png"
+    "docs"
   ],
   "publishConfig": {
     "access": "public"
