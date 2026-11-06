@@ -58,9 +58,9 @@ Entry with options:
 | Option | Type | Default | Behavior |
 |---|---|---|---|
 | `scope` | string | `"session"` | Which agents to show. Only `"session"` is supported and respected: the current session family. |
-| `showCoordinator` | boolean | `true` | Show the coordinator row while its sub-agents are running. |
+| `showCoordinator` | boolean | `true` | Show the coordinator row when space allows: `maxRows` must be greater than the number of running sub-agents. |
 | `showModel` | boolean | `true` | Show the model name on the task line. |
-| `maxRows` | integer | `8` | Maximum running-agent rows before the remaining agents are replaced by `+N more`. Valid range: 1 to 20. |
+| `maxRows` | integer | `8` | Maximum agent rows to display. Running sub-agents keep priority; rows that do not fit are reported as `+N more`. Valid range: 1 to 20. |
 
 Unknown or invalid values fall back to the defaults: a `maxRows` that is not an integer or is outside 1–20 becomes `8`, a `scope` other than `"session"` is treated as `"session"`, and non-boolean values for `showCoordinator` and `showModel` use their defaults.
 
@@ -74,7 +74,7 @@ For each running agent in the current session family:
 
 When nothing is running, the panel shows `No agents working`. Colors follow the active terminal theme.
 
-Illustrative layout (not a screenshot), with `maxRows` set to `2`:
+Illustrative layout (not a screenshot), with the default `maxRows` of 8:
 
 ```text
 Working agents
@@ -84,10 +84,9 @@ Working agents
     Claude Sonnet 4.5 - Fix plugin packaging
   > review  0m 42s
     Claude Sonnet 4.5 - Review README
-+2 more
 ```
 
-In this layout `~ ceo` is the coordinator, the indented `> build` and `> review` rows are its running sub-agents, and `+2 more` stands in for rows beyond `maxRows`. Exact spacing and truncation depend on terminal width and theme, so the panel adapts to the sidebar it is given.
+`~ ceo` is the coordinator; the indented `> build` and `> review` rows are its running sub-agents. The coordinator row appears only when `maxRows` is greater than the number of running sub-agents, so running agents keep priority when space is tight. When rows do not fit, the panel ends with `+N more`. Exact spacing and truncation depend on terminal width and theme.
 
 ## Limitations
 
