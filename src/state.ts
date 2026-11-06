@@ -303,11 +303,21 @@ export function buildSnapshot(options: BuildSnapshotOptions): Snapshot {
     };
   };
 
-  const desks: Desk[] = roster.map((definition) =>
+  // Build is synthesized by loadRoster for projects that use OpenCode's
+  // built-in primary agent. Do not invent a Build desk when the project has
+  // neither a build.md file nor any build session.
+  const visibleRoster = roster.filter(
+    (definition) =>
+      definition.id !== "build" ||
+      definition.fileBacked !== false ||
+      groups.has("build"),
+  );
+
+  const desks: Desk[] = visibleRoster.map((definition) =>
     makeDesk(definition, groups.get(definition.id) ?? [], false),
   );
 
-  const known = new Set(roster.map((definition) => definition.id));
+  const known = new Set(visibleRoster.map((definition) => definition.id));
   const visitorIds = new Set<string>();
   for (const [id, sessions] of groups) {
     if (known.has(id)) continue;

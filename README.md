@@ -99,10 +99,10 @@ hierarchies stay readable without tiny text.
 
 ### Mind map
 
-A radial view of delegation. Build — or a project hub when there are several root
-agents — sits at the center. Direct sub-agents sit on the first ring, their
-sub-agents on the next, and so on. Each coordinator owns an angular wedge, so
-deeper agents stay grouped under their parent.
+A radial view of delegation. The project hub — or the single root agent when the
+project has one — sits at the center. Direct sub-agents sit on the first ring,
+their sub-agents on the next, and so on. Each coordinator owns an angular wedge,
+so deeper agents stay grouped under their parent.
 
 ![Mind map view](docs/mind-map.png)
 
@@ -169,8 +169,9 @@ Task text comes from the session title. For a generic title such as
 - **Node.js 24+** is required because the app uses `node:sqlite`.
 - Intended for **local, single-user** use. There is no authentication layer for
   network hosting; do not expose it on a public interface.
-- Agents are discovered from the project’s `.opencode/agents` directory plus the
-  built-in **Build** agent.
+- Agents are discovered from the project’s `.opencode/agents` directory. OpenCode’s
+  built-in **Build** agent appears only when `build.md` exists or the project has
+  at least one Build session; it is never invented for projects that do not use it.
 - Sessions, tasks and todos come from the same user profile’s OpenCode database.
   Set `MONITOR_DB` or `--db` to use another database.
 - Development and testing are primarily on Windows; macOS and Linux use the
@@ -241,7 +242,7 @@ directly on Node 24 without a build step.
 npm test
 ```
 
-67 tests cover project resolution, project switching, the all-projects overview,
+68 tests cover project resolution, project switching, the all-projects overview,
 busy/idle/stale transitions, archived sessions and projects, parent roll-up,
 todo progress, visitor desks, roster parsing, configuration precedence,
 agent-file parsing and patching, editing routes, CSRF and loopback write gating,

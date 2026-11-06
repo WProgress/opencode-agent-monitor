@@ -47,6 +47,11 @@ function fixture(): Fixture {
   db.close();
 
   writeFileSync(
+    join(agentsDir, "build.md"),
+    `---\ndescription: Primary delivery agent\nmode: primary\n---\n\nBuild the project.\n`,
+  );
+
+  writeFileSync(
     join(agentsDir, "reviewer.md"),
     `---
 description: Independent code reviewer
@@ -294,6 +299,10 @@ test("switches projects and summarises every project", async () => {
   const other = join(f.dir, "other-project");
   const otherAgents = join(other, ".opencode", "agents");
   mkdirSync(otherAgents, { recursive: true });
+  writeFileSync(
+    join(otherAgents, "build.md"),
+    `---\ndescription: Primary delivery agent\nmode: primary\n---\n\nBuild the project.\n`,
+  );
   writeFileSync(
     join(otherAgents, "designer.md"),
     `---\ndescription: Designs interface screens\nmode: subagent\n---\n\nDesign clear screens.\n`,

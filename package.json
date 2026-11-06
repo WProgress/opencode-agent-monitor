@@ -1,6 +1,6 @@
 {
   "name": "@wiseprogress/opencode-agent-monitor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "Unofficial OpenCode agent monitor with live dashboards, project switching, and safe agent editing",
   "license": "MIT",

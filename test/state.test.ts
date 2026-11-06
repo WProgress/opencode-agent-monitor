@@ -527,6 +527,24 @@ test("keeps unused roster agents asleep with no task", () => {
   assert.equal(snapshot.summary.working, 0);
 });
 
+test("does not invent a Build desk without a build file or session", () => {
+  const synthetic = { ...ROSTER[0], fileBacked: false };
+
+  const empty = snapshotOf([], [], [synthetic]);
+  assert.equal(empty.desks.some((entry) => entry.id === "build"), false);
+  assert.equal(empty.summary.total, 0);
+
+  const withFile = snapshotOf([], [], [{ ...synthetic, fileBacked: true }]);
+  assert.equal(withFile.desks.some((entry) => entry.id === "build"), true);
+
+  const withSession = snapshotOf(
+    [{ id: "s-build", agent: "build", title: "Ship it", busy: NOW - MINUTE, updated: NOW - 10_000 }],
+    [],
+    [synthetic],
+  );
+  assert.equal(withSession.desks.some((entry) => entry.id === "build"), true);
+});
+
 test("counts concurrent sessions and picks the newest active task", () => {
   const snapshot = snapshotOf([
     {
