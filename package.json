@@ -1,6 +1,6 @@
 {
   "name": "@wiseprogress/opencode-agent-monitor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Unofficial OpenCode agent monitor with live dashboards, project switching, and safe agent editing",
   "license": "MIT",
@@ -39,7 +39,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "dev": "node --disable-warning=ExperimentalWarning --watch src/cli.ts",
-    "build": "esbuild src/cli.ts --bundle --splitting --platform=node --format=esm --target=node24 --outdir=dist --entry-names=ocam --chunk-names=chunks/[name]-[hash]",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && esbuild src/cli.ts --bundle --splitting --platform=node --format=esm --target=node24 --outdir=dist --entry-names=ocam --chunk-names=chunks/[name]-[hash]",
     "pack:check": "npm pack --dry-run",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "prepack": "npm run build",
