@@ -1,0 +1,27 @@
+{
+  "name": "@wiseprogress/opencode-agent-monitor-tui",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Working agents sidebar for the OpenCode terminal UI",
+  "license": "MIT",
+  "author": "wiseprogress",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WProgress/opencode-agent-monitor.git",
+    "directory": "opencode-tui"
+  },
+  "homepage": "https://github.com/WProgress/opencode-agent-monitor/tree/main/opencode-tui#readme",
+  "bugs": "https://github.com/WProgress/opencode-agent-monitor/issues",
+  "keywords": ["opencode", "plugin", "tui", "agents", "sidebar"],
+  "exports": {
+    "./tui": "./src/tui.tsx"
+  },
+  "files": ["src", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "dependencies": { "@opencode/plugin": "^2.2.5" },
+  "peerDependencies": {
+    "@opentui/core": ">=0.6.6",
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0"
+  }
+}
