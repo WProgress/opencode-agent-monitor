@@ -1,29 +1,30 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { createMemo, createSignal, onCleanup } from "solid-js"
+import { For, createEffect, createMemo, createSignal, untrack } from "solid-js"
+import {
+  applyNamedEvent,
+  applySnapshot,
+  computeView,
+  createState,
+  deriveStatus,
+  setRoot,
+  type MonitorState,
+  type Options,
+  type Row as MonitorRow,
+  type SessionSnapshot,
+} from "./core.ts"
 
 type Session = NonNullable<ReturnType<Context["data"]["session"]["get"]>>
 
-type Options = {
-  scope: "session"
-  showCoordinator: boolean
-  showModel: boolean
-  maxRows: number
+type Monitor = {
+  readonly state: () => MonitorState
+  readonly now: () => number
+  readonly attach: (sessionID: string) => void
+  readonly dispose: () => void
 }
 
-type Row = {
-  id: string
-  kind: "running" | "coordinating"
-  line1: string
-  line2: string
-}
-
-type View = {
-  rows: Row[]
-  more: number
-  empty: boolean
-}
+type SessionSync = (id: string, options?: { children?: boolean }) => Promise<void>
 
 const flag = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback)
 
@@ -47,24 +48,35 @@ function clip(value: string | undefined, max: number): string {
   return chars.slice(0, Math.max(0, max - 3)).join("").trimEnd() + "..."
 }
 
-function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  if (total < 60) return `${total}s`
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-  if (minutes < 60) return `${minutes}m ${String(seconds).padStart(2, "0")}s`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`
+function belongsToFamily(
+  id: string,
+  root: string | undefined,
+  current: string | undefined,
+  sessions: Record<string, SessionSnapshot>,
+): boolean {
+  if (id === root || id === current) return true
+
+  let cursor = id
+  const seen = new Set<string>([id])
+  for (let depth = 0; depth < 20; depth += 1) {
+    const parent = sessions[cursor]?.parentID
+    if (!parent || seen.has(parent)) return false
+    if (parent === root || parent === current) return true
+    seen.add(parent)
+    cursor = parent
+  }
+
+  return false
 }
 
-function agentName(context: Context, session: Session): string {
+function agentLabel(context: Context, session: Session): string {
   const agent = session.agent
   if (!agent) return "session"
   const info = context.data.location.agent.list(session.location)?.find((item) => item.id === agent)
-  return clip(info?.name || agent, 22)
+  return info?.name || agent || "session"
 }
 
-function modelName(context: Context, session: Session): string {
+function modelLabel(context: Context, session: Session): string {
   const ref = session.model
   if (!ref) return ""
   const info = context.data.location.model
@@ -77,154 +89,335 @@ function modelName(context: Context, session: Session): string {
   return clip(label, 24)
 }
 
-function startOf(session: Session): number | undefined {
-  return session.time.busy ?? session.time.updated
-}
+function createMonitor(context: Context, _options: Options): Monitor {
+  const [state, setState] = createSignal(createState())
+  const [now, setNow] = createSignal(Date.now())
+  const timer = setInterval(() => setNow(Date.now()), 1000)
 
-function buildView(context: Context, sessionID: string, options: Options, now: number): View {
-  const rootID = context.data.session.root(sessionID)
-  const ids = new Set<string>([rootID, sessionID, ...context.data.session.family(sessionID)])
-  const sessions = new Map<string, Session>()
-  for (const id of ids) {
-    const session = context.data.session.get(id)
-    if (session) sessions.set(id, session)
-  }
-
-  // Keep traversal anchored even if the root is not cached for a moment.
-  const anchor = sessions.has(rootID) ? rootID : sessionID
-  const running = new Map<string, boolean>()
-  for (const id of sessions.keys()) running.set(id, context.data.session.status(id) === "running")
-  const anyRunning = [...running.values()].some(Boolean)
-  const rootRunning = running.get(rootID) === true
-
-  const children = new Map<string, string[]>()
-  for (const [id, session] of sessions) {
-    if (id === anchor) continue
-    const parent = session.parentID && sessions.has(session.parentID) ? session.parentID : anchor
-    if (parent === id) continue
-    const list = children.get(parent) ?? []
-    list.push(id)
-    children.set(parent, list)
-  }
-  for (const list of children.values()) {
-    list.sort((left, right) => {
-      const a = sessions.get(left)!
-      const b = sessions.get(right)!
-      return a.time.created - b.time.created || left.localeCompare(right)
-    })
-  }
-
-  const ordered: Array<{ id: string; depth: number }> = []
+  const unsubscribers: Array<() => void> = []
+  const pending = new Map<string, ReturnType<typeof setTimeout>>()
+  const delayed = new Set<ReturnType<typeof setTimeout>>()
   const seen = new Set<string>()
-  const walk = (id: string, depth: number) => {
-    if (seen.has(id)) return
+  const syncSession: SessionSync = (id, syncOptions) =>
+    (context.data.session.sync as SessionSync)(id, syncOptions)
+
+  let attached: string | undefined
+  let disposed = false
+
+  function seenBefore(details: unknown): boolean {
+    const id = (details as { id?: unknown } | null | undefined)?.id
+    if (typeof id !== "string") return false
+    if (seen.has(id)) return true
     seen.add(id)
-    if (sessions.has(id)) ordered.push({ id, depth })
-    for (const child of children.get(id) ?? []) walk(child, depth + 1)
-  }
-  walk(anchor, 0)
-  for (const id of sessions.keys()) if (!seen.has(id)) walk(id, 0)
-
-  if (!anyRunning) return { rows: [], more: 0, empty: true }
-
-  let earliest: number | undefined
-  for (const [id, session] of sessions) {
-    if (id === rootID || !running.get(id)) continue
-    const start = startOf(session)
-    if (start === undefined) continue
-    if (earliest === undefined || start < earliest) earliest = start
+    if (seen.size > 512) {
+      const first = seen.values().next().value
+      if (first !== undefined) seen.delete(first)
+    }
+    return false
   }
 
-  const coordinator = !rootRunning && options.showCoordinator
-  const rows: Row[] = []
-  for (const { id, depth } of ordered) {
-    const session = sessions.get(id)
-    if (!session) continue
-    const isRunning = running.get(id) === true
-    const isCoordinator = id === rootID && coordinator
-    if (!isRunning && !isCoordinator) continue
+  function snapshot() {
+    if (disposed) return
 
-    const kind: Row["kind"] = isRunning ? "running" : "coordinating"
-    const start = isRunning ? startOf(session) : (earliest ?? startOf(session))
-    const indent = "  ".repeat(Math.min(depth, 3))
-    const title = clip(session.title?.trim() || "Untitled session", 48)
-    const model = options.showModel ? modelName(context, session) : ""
-    const prefix = kind === "coordinating" ? "coordinating - " : ""
-    const heading = model ? `${model} - ` : ""
+    const current = state().currentID
+    let root = state().rootID ?? current
 
-    rows.push({
-      id,
-      kind,
-      line1: `${indent}${kind === "running" ? ">" : "~"} ${agentName(context, session)}  ${formatElapsed(now - (start ?? now))}`,
-      line2: `${indent}  ${heading}${prefix}${title}`,
+    if (current) {
+      try {
+        const rootNow = context.data.session.root(current)
+        if (rootNow && rootNow !== state().rootID) {
+          root = rootNow
+          setState((previous) => setRoot(previous, current, rootNow))
+        }
+      } catch {
+        // Keep the root already attached; the next snapshot retries.
+      }
+    }
+
+    let familyIDs: string[] = []
+    if (root) {
+      try {
+        familyIDs = context.data.session.family(root)
+      } catch {
+        familyIDs = []
+      }
+    }
+
+    const ids = new Set<string>()
+    if (root) ids.add(root)
+    if (current) ids.add(current)
+    for (const id of familyIDs) ids.add(id)
+
+    if (familyIDs.length === 0 && root) {
+      let listed: Session[] = []
+      try {
+        listed = context.data.session.list()
+      } catch {
+        listed = []
+      }
+      for (const session of listed) ids.add(session.id)
+    }
+
+    const known = state().sessions
+    for (const id of Object.keys(known)) {
+      if (!ids.has(id) && belongsToFamily(id, root, current, known)) ids.add(id)
+    }
+
+    const at = Date.now()
+
+    setState((previous) => {
+      let next = previous
+      for (const id of ids) {
+        const session = context.data.session.get(id)
+        if (!session) continue
+        const entry: SessionSnapshot = {
+          id: session.id,
+          agentLabel: agentLabel(context, session),
+          modelLabel: modelLabel(context, session),
+          created: session.time.created,
+          updated: session.time.updated,
+        }
+        if (session.parentID !== undefined) entry.parentID = session.parentID
+        if (session.title !== undefined) entry.title = session.title
+        if (session.time.busy !== undefined) entry.busy = session.time.busy
+        if (session.time.idle !== undefined) entry.idle = session.time.idle
+
+        const status = deriveStatus(entry, context.data.session.status(id))
+        next = applySnapshot(next, entry, status, at)
+      }
+      return next
     })
   }
 
-  const coordinatorRow = rows.find((row) => row.kind === "coordinating")
-  const workerRows = rows.filter((row) => row.kind === "running")
-  const visible: Row[] = []
-  if (coordinatorRow && options.maxRows > workerRows.length) visible.push(coordinatorRow)
-  visible.push(...workerRows.slice(0, options.maxRows - visible.length))
+  function refresh() {
+    if (disposed) return
+    try {
+      snapshot()
+    } catch {
+      // Store reads can race a reload; the next event or sync retries.
+    }
+  }
+
+  async function flush(id: string) {
+    try {
+      context.data.session.invalidate(id)
+      await syncSession(id)
+    } catch {
+      // Sync failures are transient; the next event retries.
+    }
+    refresh()
+  }
+
+  function schedule(id: string | undefined) {
+    if (!id || disposed || pending.has(id)) return
+    const handle = setTimeout(() => {
+      pending.delete(id)
+      void flush(id)
+    }, 150)
+    pending.set(id, handle)
+  }
+
+  function scheduleDelayed(id: string | undefined) {
+    if (!id || disposed) return
+    const handle = setTimeout(() => {
+      delayed.delete(handle)
+      void flush(id)
+    }, 700)
+    delayed.add(handle)
+  }
+
+  async function bootstrap(root: string) {
+    try {
+      await syncSession(root, { children: true })
+    } catch {
+      try {
+        await syncSession(root)
+      } catch {
+        // The scheduled sync is the fallback path.
+      }
+    }
+    refresh()
+  }
+
+  function attach(sessionID: string) {
+    if (disposed || !sessionID || attached === sessionID) return
+    attached = sessionID
+
+    let root = sessionID
+    try {
+      root = context.data.session.root(sessionID) || sessionID
+    } catch {
+      root = sessionID
+    }
+
+    setState((previous) => setRoot(previous, sessionID, root))
+    refresh()
+    schedule(root)
+    if (sessionID !== root) schedule(sessionID)
+    void bootstrap(root)
+  }
+
+  function handle(name: string | undefined, details: unknown) {
+    if (!name || disposed) return
+
+    const data =
+      (details as { data?: { sessionID?: string; status?: { type?: string } } } | null | undefined)?.data ?? {}
+    const sessionID = data.sessionID
+    if (!sessionID) return
+    if (seenBefore(details)) return
+
+    const result = applyNamedEvent(state(), name, data, Date.now())
+    if (!result.handled) return
+
+    setState(result.state)
+    schedule(sessionID)
+    const root = state().rootID ?? state().currentID
+    schedule(root)
+    if (
+      name === "session.step.ended" ||
+      name === "session.step.failed" ||
+      name === "session.retry.scheduled" ||
+      name === "session.usage.updated"
+    ) {
+      scheduleDelayed(sessionID)
+    }
+  }
+
+  unsubscribers.push(
+    context.data.listen((event: { name?: string; details?: unknown }) => {
+      const details = event.details
+      const name = (details as { type?: string } | null | undefined)?.type ?? event.name
+      handle(name, details)
+    }),
+  )
+
+  const watched = [
+    "session.status",
+    "session.idle",
+    "session.created",
+    "session.deleted",
+    "session.renamed",
+    "session.model.selected",
+    "session.agent.selected",
+    "session.step.started",
+    "session.step.ended",
+    "session.step.failed",
+    "session.retry.scheduled",
+    "session.usage.updated",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+    "session.execution.interrupted",
+  ] as const
+
+  for (const name of watched) {
+    unsubscribers.push(
+      context.data.on(name, (event) => {
+        handle(name, event)
+      }),
+    )
+  }
+
+  function dispose() {
+    if (disposed) return
+    disposed = true
+    clearInterval(timer)
+    for (const unsubscribe of unsubscribers) {
+      try {
+        unsubscribe()
+      } catch {
+        // Ignore teardown races.
+      }
+    }
+    unsubscribers.length = 0
+    for (const handle of pending.values()) clearTimeout(handle)
+    pending.clear()
+    for (const handle of delayed) clearTimeout(handle)
+    delayed.clear()
+    seen.clear()
+  }
 
   return {
-    rows: visible,
-    more: Math.max(0, rows.length - visible.length),
-    empty: false,
+    state,
+    now,
+    attach,
+    dispose,
   }
+}
+
+function Row(props: { context: Context; row: MonitorRow }) {
+  return (
+    <>
+      <text
+        fg={
+          props.row.kind === "running"
+            ? props.context.theme.text.feedback.success!.base
+            : props.context.theme.text.feedback.info!.base
+        }
+        wrapMode="none"
+        truncate
+      >
+        {props.row.line1}
+      </text>
+      <text fg={props.context.theme.text.muted} wrapMode="none" truncate>
+        {props.row.line2}
+      </text>
+    </>
+  )
+}
+
+function WorkingAgents(props: {
+  context: Context
+  monitor: Monitor
+  sessionID: string
+  options: Options
+}) {
+  createEffect(() => {
+    const sessionID = props.sessionID
+    untrack(() => props.monitor.attach(sessionID))
+  })
+
+  const view = createMemo(() => {
+    const now = props.monitor.now()
+    return computeView(props.monitor.state(), now, props.options)
+  })
+
+  return (
+    <box flexDirection="column" marginTop={1} flexShrink={0}>
+      <text fg={props.context.theme.text.muted} wrapMode="none" truncate>
+        Working agents
+      </text>
+      <For each={view().rows}>{(row) => <Row context={props.context} row={row} />}</For>
+      {view().empty ? (
+        <text fg={props.context.theme.text.faint} wrapMode="none" truncate>
+          No agents working
+        </text>
+      ) : null}
+      {view().more > 0 ? (
+        <text fg={props.context.theme.text.faint} wrapMode="none" truncate>
+          {`+${view().more} more`}
+        </text>
+      ) : null}
+    </box>
+  )
 }
 
 export default Plugin.define({
   id: "wiseprogress.ocam-sidebar.tui",
   setup(context) {
     const options = readOptions(context.options)
+    const monitor = createMonitor(context, options)
 
-    const WorkingAgents = (props: { sessionID: string }) => {
-      const [now, setNow] = createSignal(Date.now())
-      const timer = setInterval(() => setNow(Date.now()), 1000)
-      onCleanup(() => clearInterval(timer))
-
-      const view = createMemo(() => buildView(context, props.sessionID, options, now()))
-
-      return (
-        <box flexDirection="column" marginTop={1} flexShrink={0}>
-          <text fg={context.theme.text.muted} wrapMode="none" truncate>
-            Working agents
-          </text>
-          {view().rows.map((row) => (
-            <>
-              <text
-                fg={
-                  row.kind === "running"
-                    ? context.theme.text.feedback.success.base
-                    : context.theme.text.feedback.info.base
-                }
-                wrapMode="none"
-                truncate
-              >
-                {row.line1}
-              </text>
-              <text fg={context.theme.text.muted} wrapMode="none" truncate>
-                {row.line2}
-              </text>
-            </>
-          ))}
-          {view().empty ? (
-            <text fg={context.theme.text.faint} wrapMode="none" truncate>
-              No agents working
-            </text>
-          ) : null}
-          {view().more > 0 ? (
-            <text fg={context.theme.text.faint} wrapMode="none" truncate>
-              {`+${view().more} more`}
-            </text>
-          ) : null}
-        </box>
-      )
-    }
-
-    return context.ui.slot({
+    const unregister = context.ui.slot({
       append: "sidebar.content",
-      render: (input) => <WorkingAgents sessionID={input.sessionID} />,
+      render: (input) => (
+        <WorkingAgents context={context} monitor={monitor} sessionID={input.sessionID} options={options} />
+      ),
     })
+
+    return () => {
+      monitor.dispose()
+      unregister()
+    }
   },
 })
