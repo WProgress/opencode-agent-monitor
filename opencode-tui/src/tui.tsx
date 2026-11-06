@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { For, createEffect, createMemo, createSignal, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, untrack } from "solid-js"
 import {
   applyNamedEvent,
   applySnapshot,
@@ -23,6 +23,8 @@ type Monitor = {
   readonly attach: (sessionID: string) => void
   readonly dispose: () => void
 }
+
+type PanelView = { rows: MonitorRow[]; more: number; empty: boolean; error?: boolean }
 
 type SessionSync = (id: string, options?: { children?: boolean }) => Promise<void>
 
@@ -92,7 +94,12 @@ function modelLabel(context: Context, session: Session): string {
 function createMonitor(context: Context, _options: Options): Monitor {
   const [state, setState] = createSignal(createState())
   const [now, setNow] = createSignal(Date.now())
-  const timer = setInterval(() => setNow(Date.now()), 1000)
+  let timer: ReturnType<typeof setInterval> | undefined
+  try {
+    timer = setInterval(() => setNow(Date.now()), 1000)
+  } catch (error) {
+    console.error("[ocam-sidebar] clock failed", error)
+  }
 
   const unsubscribers: Array<() => void> = []
   const pending = new Map<string, ReturnType<typeof setTimeout>>()
@@ -283,13 +290,17 @@ function createMonitor(context: Context, _options: Options): Monitor {
     }
   }
 
-  unsubscribers.push(
-    context.data.listen((event: { name?: string; details?: unknown }) => {
-      const details = event.details
-      const name = (details as { type?: string } | null | undefined)?.type ?? event.name
-      handle(name, details)
-    }),
-  )
+  try {
+    unsubscribers.push(
+      context.data.listen((event: { name?: string; details?: unknown }) => {
+        const details = event.details
+        const name = (details as { type?: string } | null | undefined)?.type ?? event.name
+        handle(name, details)
+      }),
+    )
+  } catch (error) {
+    console.error("[ocam-sidebar] listener failed", "listen", error)
+  }
 
   const watched = [
     "session.status",
@@ -311,17 +322,21 @@ function createMonitor(context: Context, _options: Options): Monitor {
   ] as const
 
   for (const name of watched) {
-    unsubscribers.push(
-      context.data.on(name, (event) => {
-        handle(name, event)
-      }),
-    )
+    try {
+      unsubscribers.push(
+        context.data.on(name, (event) => {
+          handle(name, event)
+        }),
+      )
+    } catch (error) {
+      console.error("[ocam-sidebar] listener failed", name, error)
+    }
   }
 
   function dispose() {
     if (disposed) return
     disposed = true
-    clearInterval(timer)
+    if (timer !== undefined) clearInterval(timer)
     for (const unsubscribe of unsubscribers) {
       try {
         unsubscribe()
@@ -350,19 +365,32 @@ function Row(props: { context: Context; row: MonitorRow }) {
     <>
       <text
         fg={
-          props.row.kind === "running"
-            ? props.context.theme.text.feedback.success!.base
-            : props.context.theme.text.feedback.info!.base
+          props.row?.kind === "running"
+            ? (props.context?.theme?.text?.feedback?.success?.base ?? props.context?.theme?.text?.muted)
+            : (props.context?.theme?.text?.feedback?.info?.base ?? props.context?.theme?.text?.muted)
         }
         wrapMode="none"
         truncate
       >
-        {props.row.line1}
+        {props.row?.line1 ?? ""}
       </text>
-      <text fg={props.context.theme.text.muted} wrapMode="none" truncate>
-        {props.row.line2}
+      <text fg={props.context?.theme?.text?.muted} wrapMode="none" truncate>
+        {props.row?.line2 ?? ""}
       </text>
     </>
+  )
+}
+
+function FallbackPanel(props: { context: Context; message: string }) {
+  return (
+    <box flexDirection="column" marginTop={1} flexShrink={0}>
+      <text fg={props.context?.theme?.text?.muted} wrapMode="none" truncate>
+        Working agents
+      </text>
+      <text fg={props.context?.theme?.text?.faint} wrapMode="none" truncate>
+        {props.message}
+      </text>
+    </box>
   )
 }
 
@@ -377,27 +405,42 @@ function WorkingAgents(props: {
     untrack(() => props.monitor.attach(sessionID))
   })
 
-  const view = createMemo(() => {
-    const now = props.monitor.now()
-    return computeView(props.monitor.state(), now, props.options)
+  const safeView = createMemo<PanelView>(() => {
+    try {
+      const now = props.monitor.now()
+      return computeView(props.monitor.state(), now, props.options)
+    } catch (error) {
+      console.error("[ocam-sidebar] computeView failed", error)
+      return { rows: [], more: 0, empty: false, error: true }
+    }
   })
 
   return (
     <box flexDirection="column" marginTop={1} flexShrink={0}>
-      <text fg={props.context.theme.text.muted} wrapMode="none" truncate>
+      <text fg={props.context?.theme?.text?.muted} wrapMode="none" truncate>
         Working agents
       </text>
-      <For each={view().rows}>{(row) => <Row context={props.context} row={row} />}</For>
-      {view().empty ? (
-        <text fg={props.context.theme.text.faint} wrapMode="none" truncate>
-          No agents working
+      {safeView().error ? (
+        <text fg={props.context?.theme?.text?.faint} wrapMode="none" truncate>
+          Panel error (see OpenCode logs)
         </text>
-      ) : null}
-      {view().more > 0 ? (
-        <text fg={props.context.theme.text.faint} wrapMode="none" truncate>
-          {`+${view().more} more`}
-        </text>
-      ) : null}
+      ) : (
+        <>
+          {safeView().rows.map((row) => (
+            <Row context={props.context} row={row} />
+          ))}
+          {safeView().empty ? (
+            <text fg={props.context?.theme?.text?.faint} wrapMode="none" truncate>
+              No agents working
+            </text>
+          ) : null}
+          {safeView().more > 0 ? (
+            <text fg={props.context?.theme?.text?.faint} wrapMode="none" truncate>
+              {`+${safeView().more} more`}
+            </text>
+          ) : null}
+        </>
+      )}
     </box>
   )
 }
@@ -406,17 +449,37 @@ export default Plugin.define({
   id: "wiseprogress.ocam-sidebar.tui",
   setup(context) {
     const options = readOptions(context.options)
-    const monitor = createMonitor(context, options)
+    let monitor: Monitor | undefined
+    let failure: string | undefined
+
+    try {
+      monitor = createMonitor(context, options)
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error)
+      console.error("[ocam-sidebar] setup failed", error)
+      try {
+        context.ui.toast.show({
+          variant: "error",
+          title: "OCAM sidebar",
+          message: `Setup failed: ${failure}`,
+        })
+      } catch {
+        // A failed toast must not prevent the fallback panel.
+      }
+    }
 
     const unregister = context.ui.slot({
       append: "sidebar.content",
-      render: (input) => (
-        <WorkingAgents context={context} monitor={monitor} sessionID={input.sessionID} options={options} />
-      ),
+      render: (input) =>
+        monitor ? (
+          <WorkingAgents context={context} monitor={monitor} sessionID={input.sessionID} options={options} />
+        ) : (
+          <FallbackPanel context={context} message={failure ?? "Monitor unavailable"} />
+        ),
     })
 
     return () => {
-      monitor.dispose()
+      monitor?.dispose()
       unregister()
     }
   },
