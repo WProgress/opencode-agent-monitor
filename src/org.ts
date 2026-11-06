@@ -36,11 +36,15 @@ interface OrgLayout {
   stageWidth: number;
   stageHeight: number;
   hub: boolean;
+  horizontal: boolean;
 }
 
 const LEAF_GAP = 296;
-const ROW_GAP = 292;
+const ROW_GAP = 260;
 const CARD_HEIGHT = 220;
+const CARD_WIDTH = 264;
+const COLUMN_GAP = 330;
+const LEAF_ROW_GAP = 250;
 
 function hierarchyKey(desks: Desk[]): string {
   return JSON.stringify(desks.map((desk) => [desk.id, desk.parentAgentId ?? null]).sort());
@@ -152,13 +156,25 @@ function buildOrgLayout(desks: Desk[]): OrgLayout {
   if (root) measure(root);
   if (root) assign(root);
   const leafCount = Math.max(1, leafCursor);
-  const stageWidth = Math.max(600, leafCount * LEAF_GAP + 80);
-  const stageHeight = Math.max(360, (maxDepth + 1) * ROW_GAP + 48);
+  // Three or more delegated levels read much better as columns: the hierarchy
+  // uses the wide desktop instead of shrinking four rows into a thumbnail.
+  const horizontal = maxDepth >= 3;
+  const stageWidth = horizontal
+    ? Math.max(900, 150 + maxDepth * COLUMN_GAP + CARD_WIDTH / 2 + 40)
+    : Math.max(600, leafCount * LEAF_GAP + 80);
+  const stageHeight = horizontal
+    ? Math.max(420, 150 + (leafCount - 1) * LEAF_ROW_GAP + CARD_HEIGHT / 2 + 40)
+    : Math.max(360, 162 + maxDepth * ROW_GAP + CARD_HEIGHT / 2 + 48);
 
   const nodes: OrgNode[] = [];
   const position = (node: OrgNode): void => {
-    node.x = (stageWidth - leafCount * LEAF_GAP) / 2 + (node.xIndex + 0.5) * LEAF_GAP;
-    node.y = 162 + node.depth * ROW_GAP;
+    if (horizontal) {
+      node.x = 150 + node.depth * COLUMN_GAP;
+      node.y = 150 + node.xIndex * LEAF_ROW_GAP;
+    } else {
+      node.x = (stageWidth - leafCount * LEAF_GAP) / 2 + (node.xIndex + 0.5) * LEAF_GAP;
+      node.y = 162 + node.depth * ROW_GAP;
+    }
     nodes.push(node);
     for (const child of node.children) position(child);
   };
@@ -167,17 +183,28 @@ function buildOrgLayout(desks: Desk[]): OrgLayout {
   const edges: OrgEdge[] = [];
   const addEdges = (node: OrgNode): void => {
     if (node.children.length === 0) return;
-    const parentX = node.x;
-    const parentY = node.y + CARD_HEIGHT / 2;
     for (const child of node.children) {
-      const childX = child.x;
-      const childY = child.y - CARD_HEIGHT / 2;
-      const busY = (parentY + childY) / 2;
       const from = node.desk?.id ?? "__root__";
+      let path: string;
+      if (horizontal) {
+        const parentX = node.x + CARD_WIDTH / 2;
+        const parentY = node.y;
+        const childX = child.x - CARD_WIDTH / 2;
+        const childY = child.y;
+        const busX = (parentX + childX) / 2;
+        path = `M ${parentX.toFixed(1)} ${parentY.toFixed(1)} H ${busX.toFixed(1)} V ${childY.toFixed(1)} H ${childX.toFixed(1)}`;
+      } else {
+        const parentX = node.x;
+        const parentY = node.y + CARD_HEIGHT / 2;
+        const childX = child.x;
+        const childY = child.y - CARD_HEIGHT / 2;
+        const busY = (parentY + childY) / 2;
+        path = `M ${parentX.toFixed(1)} ${parentY.toFixed(1)} V ${busY.toFixed(1)} H ${childX.toFixed(1)} V ${childY.toFixed(1)}`;
+      }
       edges.push({
         from,
         to: child.desk?.id ?? "__root__",
-        path: `M ${parentX.toFixed(1)} ${parentY.toFixed(1)} V ${busY.toFixed(1)} H ${childX.toFixed(1)} V ${childY.toFixed(1)}`,
+        path,
         active: child.desk?.status === "working",
       });
       addEdges(child);
@@ -194,6 +221,7 @@ function buildOrgLayout(desks: Desk[]): OrgLayout {
     stageWidth,
     stageHeight,
     hub,
+    horizontal,
   };
 }
 
@@ -226,8 +254,10 @@ function renderCard(node: OrgNode, editing: boolean, projectId?: string): string
   const badgeClass = desk.visitor ? " org-card__badge--sample" : "";
 
   return `<article class="${classes}" data-agent-card="${escapeAttr(desk.id)}" data-status="${desk.status}"
+         data-depth="${node.depth === 0 ? 0 : node.depth}"
+         data-parent="${escapeAttr(desk.parentAgentId ?? "__root__")}"
          tabindex="0" data-search="${escapeAttr(`${desk.name} ${desk.description} ${desk.task}`.toLowerCase())}"
-         style="left:${node.x.toFixed(2)}px;top:${node.y.toFixed(2)}px;--tone:${escapeAttr(desk.tone)}"
+         style="left:${node.x.toFixed(2)}px;top:${node.y.toFixed(2)}px;--tone:${escapeAttr(desk.tone)};--depth:${node.depth}"
          aria-label="${escapeAttr(desk.name)}: ${escapeAttr(metaOf(desk))}">
     <div class="org-card__head">
       <span class="org-card__avatar" aria-hidden="true">${escapeHtml(desk.initials)}<i class="org-card__dot"></i></span>
@@ -250,7 +280,7 @@ function renderCard(node: OrgNode, editing: boolean, projectId?: string): string
 function renderHub(snapshot: Snapshot, layout: OrgLayout): string {
   if (!layout.root || !layout.hub) return "";
   const root = layout.root;
-  return `<article class="org-card org-card--lead org-hub" style="left:${root.x.toFixed(2)}px;top:${root.y.toFixed(2)}px">
+  return `<article class="org-card org-card--lead org-hub" data-depth="0" style="left:${root.x.toFixed(2)}px;top:${root.y.toFixed(2)}px;--depth:0">
     <div class="org-card__head">
       <span class="org-hub__mark" aria-hidden="true">AM</span>
       <div class="org-card__name"><strong>${escapeHtml(snapshot.project.name)}</strong><span>Project</span></div>
@@ -278,12 +308,23 @@ export function renderOrgPage(snapshot: Snapshot, meta: RenderMeta): string {
     )
     .join("\n");
   const labels: string[] = [];
+  const bands: string[] = [];
   if (layout.root) {
     const seen = new Set<number>();
     for (const node of layout.nodes) {
       if (seen.has(node.depth)) continue;
       seen.add(node.depth);
-      labels.push(`<span class="org-level" style="top:${node.y - 138}px">${levelLabel(node.depth, layout.hub)}</span>`);
+      if (layout.horizontal) {
+        labels.push(`<span class="org-level org-level--column" style="left:${node.x.toFixed(1)}px;top:14px">${levelLabel(node.depth, layout.hub)}</span>`);
+        bands.push(
+          `<div class="org-band org-band--column${node.depth % 2 ? " org-band--alt" : ""}" style="left:${(node.x - COLUMN_GAP / 2 + 18).toFixed(1)}px;top:34px;width:${COLUMN_GAP - 36}px;height:${layout.stageHeight - 68}px" aria-hidden="true"></div>`,
+        );
+      } else {
+        labels.push(`<span class="org-level" style="top:${node.y - 138}px">${levelLabel(node.depth, layout.hub)}</span>`);
+        bands.push(
+          `<div class="org-band${node.depth % 2 ? " org-band--alt" : ""}" style="top:${node.y - 110}px;height:220px" aria-hidden="true"></div>`,
+        );
+      }
     }
   }
   const banner = `<div class="banner" role="alert" data-role="error"${snapshot.error ? "" : " hidden"}><strong>Cannot read OpenCode state.</strong> <span data-role="error-text">${escapeHtml(snapshot.error ?? "")}</span></div>`;
@@ -400,10 +441,14 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
 .org-scroll { flex: 1; min-height: 0; overflow: auto; border-radius: inherit; }
 .org-stage { position: relative; transform-origin: top left; }
 .org-surface { position: relative; margin: 0 auto; }
-.org-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.org-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+.org-band { position: absolute; left: 0; right: 0; z-index: 0; background: rgba(180, 158, 122, 0.055); pointer-events: none; }
+.org-band--alt { background: rgba(180, 158, 122, 0.11); }
+.org-band--column { right: auto; border-radius: 18px; }
 .org-link { fill: none; stroke: #c8b9a3; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .org-link--active { stroke: #88c1b7; stroke-width: 2.2; filter: drop-shadow(0 0 4px rgba(136, 193, 183, 0.4)); }
 .org-level { position: absolute; left: 18px; z-index: 4; color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; transform: translateY(-50%); white-space: nowrap; }
+.org-level--column { transform: translateX(-50%); }
 .org-card {
   position: absolute;
   z-index: 5;
@@ -479,6 +524,9 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
 .org-card__progress, .org-card__badge { font-size: 10px; }
 .org-card.is-match { outline: 3px solid var(--working); outline-offset: 4px; }
 .org-card.is-dimmed { opacity: .3; }
+.org-card.is-muted { opacity: .35; }
+.org-card.is-path { border-color: var(--working); box-shadow: 0 0 0 3px rgba(15, 118, 110, .12), 0 16px 28px -22px rgba(60, 46, 28, .55); }
+.org-link.is-path { stroke: var(--working); stroke-width: 2.6; }
 .org-card:focus .org-card__task, .org-card:focus .org-card__detail { position: relative; display: block; white-space: normal; overflow: visible; background: var(--panel); }
 .org-card:focus { height: auto; min-height: 220px; overflow: visible; z-index: 8; }
 .org-level { left: 24px; font-size: 10px; }
@@ -488,7 +536,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
 .org-empty strong { color: var(--ink); font-size: 20px; }
 .org-empty p { max-width: 36ch; }
 @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.10); } 50% { box-shadow: 0 0 0 6px rgba(15, 118, 110, 0.04); } }
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   html, body { height: auto; overflow: auto; }
   body { height: auto; }
   .shell { width: 100%; max-width: 100vw; padding: 0 12px; min-height: 100vh; }
@@ -497,12 +545,44 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
   h1 { font-size: 22px; }
   .project .sep, .project .path { display: none; }
   .top__actions { align-self: stretch; width: 100%; max-width: 100%; }
-  .org-wrap { height: 680px; min-height: 520px; flex: none; }
+  .org-wrap { height: auto; min-height: 0; flex: none; }
   .org-tools { width: 100%; }
   .org-search { width: 100%; }
   .org-search input { flex: 1; min-width: 0; }
+  .org-tools [data-action], .org-zoom { display: none; }
   .org-bottom { align-items: flex-start; }
   .org-legend { flex-shrink: 0; gap: 8px; }
+
+  /* Deep reporting lines read better as an indented list than as a tiny chart. */
+  .org-scroll { overflow: visible; padding: 8px; }
+  .org-surface, .org-stage { width: 100% !important; height: auto !important; }
+  .org-stage { display: flex; flex-direction: column; gap: 10px; padding: 14px 6px 22px; }
+  .org-svg, .org-band, .org-level { display: none; }
+  .org-card, .org-hub {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    width: calc(100% - var(--depth) * 18px);
+    height: auto;
+    min-height: 0;
+    margin: 0 0 0 calc(var(--depth) * 18px);
+    transform: none;
+    overflow: visible;
+  }
+  .org-card--lead { width: calc(100% - var(--depth) * 18px); }
+  .org-card[data-depth]:not([data-depth="0"])::before {
+    content: "";
+    position: absolute;
+    left: -10px;
+    top: -12px;
+    width: 10px;
+    height: 34px;
+    border-left: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line-strong);
+    border-bottom-left-radius: 5px;
+  }
+  .org-card__task { -webkit-line-clamp: 3; min-height: 0; }
+  .org-card__detail { white-space: normal; overflow: visible; text-overflow: clip; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, .live-dot { animation: none !important; transition: none !important; }
@@ -571,6 +651,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
     <div class="org-scroll" tabindex="0" role="region" aria-label="Reporting chart; scroll to explore">
      <div class="org-surface" style="width:${layout.stageWidth}px;height:${layout.stageHeight}px">
       <div class="org-stage" id="org" data-role="org" style="width:${layout.stageWidth}px;height:${layout.stageHeight}px">
+        ${bands.join("\n")}
         <svg class="org-svg" viewBox="0 0 ${layout.stageWidth} ${layout.stageHeight}" aria-hidden="true" focusable="false">
           ${links}
         </svg>
@@ -581,7 +662,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -0.015em; fon
       </div>
      </div>
     </div>
-    <div class="org-bottom"><span data-role="search-result" role="status">Coordinator → sub-agent · Focus a card to read its full task</span><div class="org-legend"><span class="on"><i></i>Working</span><span><i></i>Sleeping</span></div></div>
+    <div class="org-bottom"><span data-role="search-result" role="status">Scroll to explore · Focus a card to read its full task</span><div class="org-legend"><span class="on"><i></i>Working</span><span><i></i>Sleeping</span></div></div>
   </div>
 
   <footer class="foot">
@@ -609,6 +690,59 @@ ${PROJECT_SWITCH_SCRIPT}
   var edgePaths = {};
   var edgeNodes = document.querySelectorAll("[data-edge]");
   for (var e = 0; e < edgeNodes.length; e += 1) edgePaths[edgeNodes[e].getAttribute("data-edge")] = edgeNodes[e];
+  var parentById = {};
+  for (var p = 0; p < nodes.length; p += 1) {
+    parentById[nodes[p].getAttribute("data-agent-card")] = nodes[p].getAttribute("data-parent");
+  }
+
+  function highlightPath(id, on) {
+    var keep = {};
+    if (on && id) {
+      var cursor = id;
+      var seen = {};
+      while (cursor && !seen[cursor]) {
+        keep[cursor] = true;
+        seen[cursor] = true;
+        cursor = parentById[cursor] || "";
+      }
+      var stack = [id];
+      while (stack.length) {
+        var current = stack.pop();
+        for (var child in parentById) {
+          if (parentById[child] === current && !keep[child]) {
+            keep[child] = true;
+            stack.push(child);
+          }
+        }
+      }
+    }
+    for (var key in cards) {
+      if (!Object.prototype.hasOwnProperty.call(cards, key)) continue;
+      cards[key].classList.toggle("is-path", Boolean(keep[key]));
+      cards[key].classList.toggle("is-muted", Boolean(on && id && !keep[key]));
+    }
+    for (var edge in edgePaths) {
+      if (!Object.prototype.hasOwnProperty.call(edgePaths, edge)) continue;
+      var pair = edge.split(">");
+      edgePaths[edge].classList.toggle("is-path", Boolean(keep[pair[0]] && keep[pair[1]]));
+    }
+  }
+
+  var focusTimer = 0;
+  document.addEventListener("focusin", function (event) {
+    var card = event.target && event.target.closest ? event.target.closest("[data-agent-card]") : null;
+    if (!card) return;
+    clearTimeout(focusTimer);
+    highlightPath(card.getAttribute("data-agent-card"), true);
+  });
+  document.addEventListener("focusout", function () {
+    clearTimeout(focusTimer);
+    focusTimer = window.setTimeout(function () {
+      var active = document.activeElement;
+      var card = active && active.closest ? active.closest("[data-agent-card]") : null;
+      if (!card) highlightPath("", false);
+    }, 40);
+  });
 
   var scroll = document.querySelector('.org-scroll');
   var stage = document.querySelector('.org-stage');
@@ -616,9 +750,12 @@ ${PROJECT_SWITCH_SCRIPT}
   var chartWidth = ${layout.stageWidth};
   var chartHeight = ${layout.stageHeight};
   var zoom = 1;
-  var autoFit = true;
+  var autoFit = "readable";
+  var readableZoom = ${layout.horizontal ? .92 : .7};
+  var flowQuery = window.matchMedia("(max-width: 760px)");
   var search = document.querySelector('[data-role="search"]');
   document.querySelector('[data-role="chart-tools"]').hidden = false;
+  function isFlow() { return flowQuery.matches; }
   function setZoom(value) {
     var oldZoom = zoom;
     var centerX = (scroll.scrollLeft + scroll.clientWidth / 2 - surface.offsetLeft + scroll.offsetLeft) / oldZoom;
@@ -633,17 +770,35 @@ ${PROJECT_SWITCH_SCRIPT}
     document.querySelector('[data-action="zoom-out"]').disabled = zoom <= .25;
     document.querySelector('[data-action="zoom-in"]').disabled = zoom >= 1.6;
   }
-  function fitChart() {
-    setZoom(Math.min(1, (scroll.clientWidth - 24) / chartWidth, (scroll.clientHeight - 24) / chartHeight));
-    scroll.scrollLeft = Math.max(0, (chartWidth * zoom - scroll.clientWidth) / 2);
+  function clearZoom() {
+    zoom = 1;
+    stage.style.transform = 'none';
+    surface.style.width = '';
+    surface.style.height = '';
+    text(document, 'zoom', '100%');
+  }
+  function fitChart(minimum) {
+    if (isFlow()) { clearZoom(); return; }
+    setZoom(Math.max(minimum, Math.min(
+      1,
+      (scroll.clientWidth - 24) / chartWidth,
+      (scroll.clientHeight - 24) / chartHeight,
+    )));
+    scroll.scrollLeft = 0;
     scroll.scrollTop = 0;
+  }
+  function applyAutoFit() {
+    if (isFlow()) clearZoom();
+    else if (autoFit === 'all') fitChart(.25);
+    else if (autoFit === 'readable') fitChart(readableZoom);
+    else setZoom(zoom);
   }
   document.querySelector('.org-tools').addEventListener('click', function (event) {
     var button = event.target.closest('button[data-action]');
     if (!button) return;
     var action = button.getAttribute('data-action');
-    autoFit = action === 'fit';
-    if (autoFit) fitChart();
+    autoFit = action === 'fit' ? 'all' : false;
+    if (action === 'fit') fitChart(.25);
     else setZoom(action === 'reset' ? 1 : zoom + (action === 'zoom-in' ? .1 : -.1));
   });
   function searchCards(reveal) {
@@ -655,16 +810,17 @@ ${PROJECT_SWITCH_SCRIPT}
       nodes[n].classList.toggle('is-dimmed', Boolean(query && !match));
       if (match) matches.push(nodes[n]);
     }
-    text(document, 'search-result', query ? matches.length + ' matching agent' + (matches.length === 1 ? '' : 's') : 'Coordinator → sub-agent · Focus a card to read its full task');
+    text(document, 'search-result', query ? matches.length + ' matching agent' + (matches.length === 1 ? '' : 's') : 'Scroll to explore · Focus a card to read its full task');
     if (reveal && matches.length) {
       autoFit = false;
-      setZoom(1);
+      if (!isFlow()) setZoom(1);
       matches[0].scrollIntoView({ block: 'center', inline: 'center' });
     }
   }
   search.addEventListener('input', function () { searchCards(true); });
-  if ('ResizeObserver' in window) new ResizeObserver(function () { if (autoFit) fitChart(); }).observe(scroll);
-  fitChart();
+  if ('ResizeObserver' in window) new ResizeObserver(applyAutoFit).observe(scroll);
+  if (flowQuery.addEventListener) flowQuery.addEventListener('change', applyAutoFit);
+  applyAutoFit();
 
   function pad(value) { return (value < 10 ? "0" : "") + value; }
   function clock(ms) {

@@ -795,6 +795,27 @@ test("org chart handles empty teams, cycles and unsafe card content", () => {
   assert.doesNotMatch(html, /class="org-card__edit"/);
 });
 
+test("lays deep reporting chains out as readable columns", () => {
+  const meta = { databasePath: "C:/db/opencode.db", staleMinutes: 15, editing: true };
+  const html = renderOrgPage(
+    snapshotModel([
+      deskModel({ id: "build", name: "Build", parentAgentId: null }),
+      deskModel({ id: "director", name: "Director", parentAgentId: "build" }),
+      deskModel({ id: "manager", name: "Manager", parentAgentId: "director" }),
+      deskModel({ id: "specialist", name: "Specialist", parentAgentId: "manager" }),
+    ]),
+    meta,
+  );
+
+  assert.match(html, /data-agent-card="specialist"/);
+  assert.match(html, /data-depth="3"/);
+  assert.match(html, /class="org-level org-level--column"/);
+  assert.match(html, /org-band--column/);
+  assert.match(html, /var readableZoom = 0.92/);
+  assert.match(html, /@media \(max-width: 760px\)/);
+  assert.match(html, /--depth\) \* 18px/);
+});
+
 test("renders working and sleeping desks with written status and live wiring", () => {
   const html = renderPage(
     snapshotModel([

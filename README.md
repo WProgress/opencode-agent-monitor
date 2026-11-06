@@ -79,13 +79,23 @@ ocam "D:\SourceCode\Personal\BillingAgent" --port=4421
 
 ### Org structure — default
 
-A formal reporting chart. Coordinators sit above their direct reports, nested
-reports sit below their manager, and elbow connectors make the chain of command
-explicit. Sleeping agents are grayscale. Cards show status, task, progress and
-an Edit action.
+A formal reporting chart. For shallow teams, coordinators sit above their direct
+reports, nested reports sit below their manager, and elbow connectors make the
+chain of command explicit. Sleeping agents are grayscale. Cards show status,
+task, progress and an Edit action.
+
+When a project has **three or more delegated levels**, the chart switches to
+left-to-right reporting columns so the full chain stays legible instead of
+shrinking into a thumbnail. Focus a card to trace its reporting line; unrelated
+branches dim.
+
+![Organizational structure](docs/org-structure.png)
+
+![Deep reporting chain shown in columns](docs/deep-hierarchy.png)
 
 Use **Find agent** to filter by name, role or task, and the zoom controls to fit
-large teams. Focus a card to read its full task.
+large teams. On narrow screens the chart becomes an indented list, so deep
+hierarchies stay readable without tiny text.
 
 ### Mind map
 
@@ -231,7 +241,7 @@ directly on Node 24 without a build step.
 npm test
 ```
 
-66 tests cover project resolution, project switching, the all-projects overview,
+67 tests cover project resolution, project switching, the all-projects overview,
 busy/idle/stale transitions, archived sessions and projects, parent roll-up,
 todo progress, visitor desks, roster parsing, configuration precedence,
 agent-file parsing and patching, editing routes, CSRF and loopback write gating,
