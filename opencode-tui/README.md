@@ -32,7 +32,9 @@ opencode plugin list
 
 Use `cli.json`, not `opencode.json`, because this package only extends the terminal UI.
 
-Bare entry:
+Add one of these entries to the existing `plugins` array in `cli.json`, keeping your other settings such as `animations`, `theme`, and `session` intact.
+
+Bare entry to add to the array:
 
 ```json
 {
@@ -40,7 +42,7 @@ Bare entry:
 }
 ```
 
-Entry with options:
+Entry with options to add to the array:
 
 ```json
 {
@@ -82,7 +84,7 @@ Working agents
   Claude Opus 4.5 - coordinating - Ship the release
   > build  1m 05s
     Claude Sonnet 4.5 - Fix plugin packaging
-  > review  0m 42s
+  > review  42s
     Claude Sonnet 4.5 - Review README
 ```
 

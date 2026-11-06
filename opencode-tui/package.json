@@ -1,6 +1,6 @@
 {
   "name": "@wiseprogress/opencode-agent-monitor-tui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Working agents sidebar for the OpenCode terminal UI",
   "license": "MIT",
